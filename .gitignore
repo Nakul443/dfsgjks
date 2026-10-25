@@ -1,0 +1,18 @@
+# Virtual environments
+venv/
+.venv/
+backend/venv/
+backend/.venv/
+
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Environment variables
+.env
+backend/.env
+
+# Build & OS files
+.DS_Store
