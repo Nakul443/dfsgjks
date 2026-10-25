@@ -1,7 +1,12 @@
+# this file is the main entry point for the backend application.
+# It sets up the FastAPI app, configures middleware, and defines the lifespan of the application.
+
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
 from app.api.routes import router
 from app.config import settings
 from app.services.data_store import data_store

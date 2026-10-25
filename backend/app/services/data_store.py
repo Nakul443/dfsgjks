@@ -37,7 +37,9 @@ class DataStore:
         if not actuals_path.exists():
             raise FileNotFoundError(f"Actuals parquet file not found at {actuals_path}")
         if not forecasts_path.exists():
-            raise FileNotFoundError(f"Forecasts parquet file not found at {forecasts_path}")
+            raise FileNotFoundError(
+                f"Forecasts parquet file not found at {forecasts_path}"
+            )
 
         actuals = pd.read_parquet(actuals_path)
         forecasts = pd.read_parquet(forecasts_path)
@@ -48,9 +50,9 @@ class DataStore:
         forecasts["publish_time"] = pd.to_datetime(forecasts["publish_time"], utc=True)
 
         self._actuals = actuals.sort_values("start_time").reset_index(drop=True)
-        self._forecasts = (
-            forecasts.sort_values(["start_time", "publish_time"]).reset_index(drop=True)
-        )
+        self._forecasts = forecasts.sort_values(
+            ["start_time", "publish_time"]
+        ).reset_index(drop=True)
 
         self._meta = DataStoreMeta(
             actuals=DatasetBounds(

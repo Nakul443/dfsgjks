@@ -1,4 +1,7 @@
+# this file defines Pydantic models for the API responses related to dataset bounds and metadata.
+
 from datetime import datetime
+
 from pydantic import BaseModel
 
 

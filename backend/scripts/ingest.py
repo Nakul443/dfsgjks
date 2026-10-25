@@ -8,6 +8,10 @@ Saves cleaned datasets to Parquet files in backend/data/:
   - forecasts.parquet: [start_time, publish_time, generation]
 """
 
+# this file is responsible for ingesting wind generation actuals and forecasts from the Elexon BMRS API v1.
+# It fetches data in chunks, handles rate limiting with retries,
+# processes and cleans the data, and saves the results to Parquet files for use in the backend application.
+
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path

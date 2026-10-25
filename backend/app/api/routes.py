@@ -1,4 +1,8 @@
+# this file defines the API routes for the backend application,
+# specifically for retrieving metadata about datasets.
+
 from fastapi import APIRouter
+
 from app.schemas import DatasetBoundsResponse, MetaResponse
 from app.services.data_store import data_store
 
