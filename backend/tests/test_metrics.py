@@ -145,7 +145,9 @@ def test_metrics_by_horizon():
             "start_time": [
                 pd.Timestamp("2026-01-02T12:00:00Z"),  # horizon = 3h -> bucket "0-6"
                 pd.Timestamp("2026-01-02T12:00:00Z"),  # horizon = 20h -> bucket "12-24"
-                pd.Timestamp("2026-01-02T12:00:00Z"),  # horizon = -2h -> EXCLUDE (negative)
+                pd.Timestamp(
+                    "2026-01-02T12:00:00Z"
+                ),  # horizon = -2h -> EXCLUDE (negative)
             ],
             "publish_time": [
                 pd.Timestamp("2026-01-02T09:00:00Z"),

@@ -22,7 +22,9 @@ HORIZON_BUCKET_EDGES = [0.0, 6.0, 12.0, 24.0, 36.0, 48.0, float("inf")]
 HORIZON_BUCKET_LABELS = ["0-6", "6-12", "12-24", "24-36", "36-48", "48+"]
 
 
-def compute_error_stats(error_series: pd.Series, actual_series: pd.Series | None = None) -> dict[str, Any]:
+def compute_error_stats(
+    error_series: pd.Series, actual_series: pd.Series | None = None
+) -> dict[str, Any]:
     """Helper to compute MAE, RMSE, bias, MAPE, and percentiles on non-null error series."""
     valid_errors = error_series.dropna()
     count = len(valid_errors)
@@ -53,7 +55,9 @@ def compute_error_stats(error_series: pd.Series, actual_series: pd.Series | None
         sub_actual = actual_series.loc[valid_indices]
         non_zero_mask = sub_actual != 0.0
         if non_zero_mask.any():
-            mape_vals = (valid_errors[non_zero_mask].abs() / sub_actual[non_zero_mask].abs()) * 100.0
+            mape_vals = (
+                valid_errors[non_zero_mask].abs() / sub_actual[non_zero_mask].abs()
+            ) * 100.0
             mape = float(mape_vals.mean())
 
     return {
@@ -99,10 +103,7 @@ def metrics_by_hour(series_df: pd.DataFrame) -> list[dict[str, Any]]:
     Returns list of dicts: [ { "hour": h, "mae": ..., "bias": ..., "count": ... } ]
     """
     if series_df.empty:
-        return [
-            {"hour": h, "mae": None, "bias": None, "count": 0}
-            for h in range(24)
-        ]
+        return [{"hour": h, "mae": None, "bias": None, "count": 0} for h in range(24)]
 
     df = series_df.copy()
     df["hour"] = df["time"].dt.hour
@@ -140,9 +141,9 @@ def metrics_by_horizon(
     Returns list of dicts: [ { "bucket": "0-6", "mae": ..., "bias": ..., "count": ... }, ... ]
     """
     # Subsets in [start, end)
-    a_sub = actuals[
-        (actuals["start_time"] >= start) & (actuals["start_time"] < end)
-    ][["start_time", "generation"]].copy()
+    a_sub = actuals[(actuals["start_time"] >= start) & (actuals["start_time"] < end)][
+        ["start_time", "generation"]
+    ].copy()
     a_sub = a_sub.rename(columns={"start_time": "time", "generation": "actual"})
 
     f_sub = forecasts[
