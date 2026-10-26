@@ -8,6 +8,7 @@ from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+# Pydantic model for application settings, including data directory, default cutoff time, allowed CORS origins, and server port.
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -26,10 +27,17 @@ class Settings(BaseSettings):
         p = Path(v)
         if not p.is_absolute():
             backend_root = Path(__file__).resolve().parent.parent
-            candidate = backend_root / p
-            if candidate.exists():
-                return candidate
-            return p.resolve()
+            candidates = [
+                backend_root / p,
+                Path.cwd() / p,
+                Path.cwd() / "backend" / p,
+                backend_root / "data",
+                Path.cwd() / "data",
+            ]
+            for candidate in candidates:
+                if (candidate / "actuals.parquet").exists():
+                    return candidate
+            return (backend_root / p).resolve()
         return p
 
     @property

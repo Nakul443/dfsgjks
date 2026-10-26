@@ -31,18 +31,28 @@ class DataStore:
         if self._data_dir is None:
             raise ValueError("data_dir must be provided to load DataStore")
 
-        actuals_path = self._data_dir / "actuals.parquet"
-        forecasts_path = self._data_dir / "forecasts.parquet"
+        actuals_parquet = self._data_dir / "actuals.parquet"
+        actuals_csv_gz = self._data_dir / "actuals.csv.gz"
+        forecasts_parquet = self._data_dir / "forecasts.parquet"
+        forecasts_csv_gz = self._data_dir / "forecasts.csv.gz"
 
-        if not actuals_path.exists():
-            raise FileNotFoundError(f"Actuals parquet file not found at {actuals_path}")
-        if not forecasts_path.exists():
+        if actuals_parquet.exists():
+            actuals = pd.read_parquet(actuals_parquet)
+        elif actuals_csv_gz.exists():
+            actuals = pd.read_csv(actuals_csv_gz)
+        else:
             raise FileNotFoundError(
-                f"Forecasts parquet file not found at {forecasts_path}"
+                f"Neither actuals.parquet nor actuals.csv.gz found at {self._data_dir}"
             )
 
-        actuals = pd.read_parquet(actuals_path)
-        forecasts = pd.read_parquet(forecasts_path)
+        if forecasts_parquet.exists():
+            forecasts = pd.read_parquet(forecasts_parquet)
+        elif forecasts_csv_gz.exists():
+            forecasts = pd.read_csv(forecasts_csv_gz)
+        else:
+            raise FileNotFoundError(
+                f"Neither forecasts.parquet nor forecasts.csv.gz found at {self._data_dir}"
+            )
 
         # Enforce UTC timezone-awareness
         actuals["start_time"] = pd.to_datetime(actuals["start_time"], utc=True)
