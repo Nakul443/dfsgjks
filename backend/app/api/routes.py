@@ -33,6 +33,25 @@ MAX_DELIVERY_TIME = datetime(2026, 2, 1, 0, 0, tzinfo=UTC)
 CUTOFF_PATTERN = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 
 
+def get_full_month_reference_errors(cutoff_time: str) -> pd.Series:
+    """Retrieve or compute the full January 2026 error series for a given cutoff."""
+    cache_key = ("full_month_errors", cutoff_time)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    full_series = build_series(
+        data_store.actuals,
+        data_store.forecasts,
+        MIN_DELIVERY_TIME,
+        MAX_DELIVERY_TIME,
+        cutoff=cutoff_time,
+    )
+    errors = full_series["error"].dropna()
+    cache.set(cache_key, errors)
+    return errors
+
+
 def validate_time_range(start_str: str, end_str: str) -> tuple[datetime, datetime]:
     """Parse and validate start and end query parameters."""
     try:
@@ -129,7 +148,8 @@ def get_series(
     series = build_series(
         data_store.actuals, data_store.forecasts, start_dt, end_dt, cutoff=cutoff_time
     )
-    series_with_band = planning_band(series)
+    ref_errors = get_full_month_reference_errors(cutoff_time)
+    series_with_band = planning_band(series, reference_errors=ref_errors)
 
     records = series_with_band.to_dict(orient="records")
     items = []

@@ -1,9 +1,9 @@
 services:
   backend:
     build:
-      context: .
+      context: ./backend
       dockerfile: Dockerfile
-    container_name: forecaster-backend
+    container_name: windband-backend
     ports:
       - "8000:8000"
     environment:

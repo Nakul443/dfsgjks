@@ -1,6 +1,10 @@
+# this file is responsible for loading and managing the actuals and forecasts datasets used by the backend application
+# actuals here refer to the observed wind generation data, while forecasts refer to the predicted wind generation data
+
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+
 import pandas as pd
 
 
@@ -78,22 +82,29 @@ class DataStore:
             default_cutoff=default_cutoff,
         )
 
+    def _ensure_loaded(self) -> None:
+        if self._actuals is None or self._forecasts is None or self._meta is None:
+            from app.config import settings
+
+            target_dir = self._data_dir or settings.data_dir
+            self.load(data_dir=target_dir, default_cutoff=settings.default_cutoff)
+
     @property
     def actuals(self) -> pd.DataFrame:
-        if self._actuals is None:
-            raise RuntimeError("DataStore is not loaded. Call load() first.")
+        self._ensure_loaded()
+        assert self._actuals is not None
         return self._actuals
 
     @property
     def forecasts(self) -> pd.DataFrame:
-        if self._forecasts is None:
-            raise RuntimeError("DataStore is not loaded. Call load() first.")
+        self._ensure_loaded()
+        assert self._forecasts is not None
         return self._forecasts
 
     @property
     def meta(self) -> DataStoreMeta:
-        if self._meta is None:
-            raise RuntimeError("DataStore is not loaded. Call load() first.")
+        self._ensure_loaded()
+        assert self._meta is not None
         return self._meta
 
 

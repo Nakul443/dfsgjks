@@ -155,3 +155,54 @@ def test_validation_bad_iso_format(client):
     response = client.get("/api/series", params=params)
     assert response.status_code == 422
     assert "Invalid start datetime" in response.json()["detail"]
+
+
+def test_lazy_data_loading():
+    """Verify DataStore lazy loads if properties are accessed without explicit load()."""
+    from app.services.data_store import DataStore
+
+    fresh_store = DataStore()
+    # Should not raise RuntimeError; should lazy load on property access
+    actuals = fresh_store.actuals
+    assert len(actuals) > 0
+    forecasts = fresh_store.forecasts
+    assert len(forecasts) > 0
+    meta = fresh_store.meta
+    assert meta.actuals.row_count > 0
+
+
+def test_planning_band_identical_across_subranges(client):
+    """
+    Step 8b verification:
+    Verify that two sub-ranges with the same cutoff return identical band_low and band_high
+    for the exact same slot, because percentiles come from the fixed full-month reference.
+    """
+    slot_time = "2026-01-10T12:00:00Z"
+
+    # Call 1: 1-day range covering 2026-01-10
+    r1 = client.get(
+        "/api/series",
+        params={
+            "start": "2026-01-10T00:00:00Z",
+            "end": "2026-01-11T00:00:00Z",
+            "cutoff": "09:00",
+        },
+    )
+    assert r1.status_code == 200
+    item1 = next(x for x in r1.json()["data"] if x["time"] == slot_time)
+
+    # Call 2: 7-day range covering 2026-01-08 to 2026-01-15
+    r2 = client.get(
+        "/api/series",
+        params={
+            "start": "2026-01-08T00:00:00Z",
+            "end": "2026-01-15T00:00:00Z",
+            "cutoff": "09:00",
+        },
+    )
+    assert r2.status_code == 200
+    item2 = next(x for x in r2.json()["data"] if x["time"] == slot_time)
+
+    assert item1["forecast"] == item2["forecast"]
+    assert item1["band_low"] == item2["band_low"]
+    assert item1["band_high"] == item2["band_high"]

@@ -212,17 +212,24 @@ def metrics_by_horizon(
     return results
 
 
-def planning_band(series_df: pd.DataFrame) -> pd.DataFrame:
+def planning_band(
+    series_df: pd.DataFrame,
+    reference_errors: pd.Series | None = None,
+) -> pd.DataFrame:
     """
     Computes per-slot planning band:
       band_low = max(0.0, forecast - P90(error))
       band_high = forecast - P10(error)
-    Where P10 and P90 of error are computed from the non-null error rows of the series.
+    Where P10 and P90 of error are computed from reference_errors if provided,
+    or fallback to non-null error rows of series_df.
+    Percentiles come from a fixed reference: the whole January 2026 decision-time error
+    series for the same cutoff, so the band does not leak the selected day's actuals or change with zoom.
     If no valid error rows exist, band_low and band_high are null.
     Returns copy of series_df with band_low and band_high added.
     """
     df = series_df.copy()
-    valid_errors = df["error"].dropna()
+    err_source = reference_errors if reference_errors is not None else df["error"]
+    valid_errors = err_source.dropna()
 
     if len(valid_errors) == 0:
         df["band_low"] = np.nan

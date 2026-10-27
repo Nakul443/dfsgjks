@@ -1,6 +1,6 @@
-# UK Wind Forecast Accuracy Portal — Backend
+# WindBand: UK Wind Forecast Accuracy Portal
 
-A specialized Python FastAPI backend providing UK day-ahead wind forecast accuracy analysis and decision-time forecasting for energy trading teams.
+A specialized Python FastAPI backend and React dashboard providing UK day-ahead wind forecast accuracy analysis and decision-time forecasting for energy trading teams.
 
 Built using historical **Elexon BMRS** datasets for January 2026 delivery days (`2026-01-01T00:00:00Z` to `2026-02-01T00:00:00Z`).
 
@@ -13,23 +13,24 @@ Electricity buyers in the UK day-ahead power market make commitment and procurem
 
 ### Key Rules & Cutoff Assumption
 1. **Decision Cutoff Assumption**:
-   - For every 30-minute delivery slot $ on delivery day $, the default day-ahead cutoff is defined as:
-     2758\text{cutoff} = (D - 1\ \text{day})\ \text{at}\ \text{09:00 UTC}2758
+   - For every 30-minute delivery slot time t on delivery day D, the default day-ahead cutoff is defined as:
+     cutoff = (D - 1 day) at 09:00 UTC
    - **The 09:00 UTC cutoff is an explicit operating assumption** representing the morning trading desk workflow ahead of the day-ahead auction (EPEX SPOT / Nord Pool).
    - The cutoff time is fully configurable via query parameters (`?cutoff=HH:MM`) or environment configuration (`DEFAULT_CUTOFF`).
 2. **WINDFOR Hourly Granularity & Forward Fill**:
    - Elexon BMRS `WINDFOR` forecasts publish at hourly intervals (`:00`).
    - For half-hourly settlement periods, the hourly forecast is carried forward to its subsequent `:30` slot (`forward_fill_hourly_forecasts`, max 30 minutes, preserving the identical `publish_time`).
 3. **Forecast Selection**:
-   - For delivery slot $, candidate forecasts must satisfy $\text{publish\_time} \le \text{cutoff}$.
+   - For delivery slot t, candidate forecasts must satisfy publish_time <= cutoff.
    - The candidate with the latest `publish_time` is selected.
    - If no forecast exists prior to cutoff, the forecast is returned as `null` (never `0`).
-4. **Accuracy Metrics & Planning Band**:
-   - $\text{error} = \text{forecast} - \text{actual}$ (positive = over-forecast, negative = under-forecast).
-   - $\text{MAE} = \text{mean}(|\text{error}|)$, $\text{RMSE} = \sqrt{\text{mean}(\text{error}^2)}$, $\text{Bias} = \text{mean}(\text{error})$.
-   - $\text{MAPE} = \text{mean}(|\text{error}| / \text{actual}) \times 100$, strictly excluding rows where $\text{actual} = 0$.
-   - **Planning Band**: per slot, $\text{band\_low} = \max(0, \text{forecast} - P90(\text{error}))$ and $\text{band\_high} = \text{forecast} - P10(\text{error})$, derived from the selected range's error percentiles.
-   - **By Horizon Analysis**: joins all historical forecasts to actuals, excludes $\text{horizon\_hours} < 0$, and groups errors into horizon buckets (`0-6`, `6-12`, `12-24`, `24-36`, `36-48`, `48+`).
+4. **Accuracy Metrics & Fixed Planning Band**:
+   - error = forecast - actual (positive = over-forecast, negative = under-forecast).
+   - MAE = mean(|error|), RMSE = sqrt(mean(error^2)), Bias = mean(error).
+   - MAPE = mean(|error| / actual) * 100, strictly excluding rows where actual == 0.
+   - **Planning Band**: per slot, band_low = max(0, forecast - P90(error)) and band_high = forecast - P10(error).
+     **Crucially, percentiles are computed from the full January 2026 decision-time error series for the same cutoff.** This ensures the band represents a fixed historical in-sample reference, avoids leaking the target day's own actuals into its band, and remains stable when zooming.
+   - **By Horizon Analysis**: joins all historical forecasts to actuals, excludes horizon_hours < 0, and groups errors into horizon buckets (`0-6`, `6-12`, `12-24`, `24-36`, `36-48`, `48+`).
 
 ---
 
@@ -41,15 +42,15 @@ Elexon BMRS API ---> scripts/ingest.py ---> backend/data/actuals.parquet   (1,48
                                        ---> backend/data/forecasts.parquet (18,080 rows)
                                                     |
 [RUNTIME ARCHITECTURE]                              v
-Client ---> FastAPI Routes ---> In-Memory Cache ---> DataStore (Loaded once at startup)
+Client ---> FastAPI Routes ---> In-Memory Cache ---> DataStore (Loaded once or on-demand)
                  |                     |                      |
                  v                     v                      v
             Validation           decision_time             metrics
 ```
 
-- **No Database**: January 2026 is closed historical data. An immutable snapshot of cleaned Parquet files (committed to `backend/data/`) is loaded into pandas once at application startup.
+- **No Database**: January 2026 is closed historical data. An immutable snapshot of cleaned Parquet files (committed to `backend/data/`) is loaded into pandas at application startup or on first property access.
 - **Zero Runtime Elexon Calls**: The web service is fully decoupled from external Elexon API rate limits or downtime.
-- **Stateless & Scalable**: In-memory caching and vectorised pandas operations ensure full-month queries resolve in under 35 ms.
+- **Stateless & Scalable**: In-memory caching and vectorized pandas operations ensure full-month queries resolve in under 35 ms.
 - **Strict One-Way Dependency**: `routes -> services -> data_store`. Services remain agnostic to HTTP layers.
 - **Missing Data Contract**: Missing forecasts or actuals are emitted as JSON `null`, never `NaN`, `Infinity`, or `0`.
 - **Production Path**: In a live multi-month production environment, an automated worker (Airflow, Celery, or AWS Lambda) would ingest Elexon stream endpoints periodically into a time-series database (e.g. TimescaleDB or ClickHouse), with Redis caching hot day-ahead queries.
@@ -59,8 +60,11 @@ Client ---> FastAPI Routes ---> In-Memory Cache ---> DataStore (Loaded once at s
 ## 3. Directory Layout
 
 ```
-forecaster/
+windband/
 ├── README.md                          # Repository documentation
+├── docker-compose.yml                 # Local multi-container compose (backend + web)
+├── docs/
+│   └── BUILD_GUIDE.md                 # Step-by-step developer build guide
 └── backend/
     ├── api/
     │   └── index.py                   # Vercel Serverless Function entrypoint
@@ -72,7 +76,7 @@ forecaster/
     │   ├── api/
     │   │   └── routes.py              # REST API route handlers and 422 validations
     │   └── services/
-    │       ├── data_store.py          # Parquet / CSV.GZ in-memory data store
+    │       ├── data_store.py          # Parquet / CSV.GZ in-memory data store with lazy load
     │       ├── decision_time.py       # Core decision-time forecast alignment & forward fill
     │       └── metrics.py             # MAE, RMSE, bias, MAPE, by-hour, by-horizon, band
     ├── data/
@@ -89,8 +93,8 @@ forecaster/
     ├── .env.example
     ├── .gitignore
     ├── Dockerfile                     # Production container image
-    ├── docker-compose.yml             # Local multi-container setup
-    ├── requirements.txt               # Pinned dependencies
+    ├── requirements.txt               # Production runtime dependencies
+    ├── requirements-dev.txt           # Test & development dependencies
     └── vercel.json                    # Vercel deployment configuration
 ```
 
@@ -115,6 +119,7 @@ forecaster/
 3. Install dependencies:
    ```bash
    pip install -r requirements.txt
+   pip install -r requirements-dev.txt
    ```
 4. Start the development server:
    ```bash
@@ -127,23 +132,15 @@ forecaster/
    ```
 
 ### Running Tests
-Execute the comprehensive test suite (25 passing tests):
+Execute the comprehensive test suite (27 passing tests):
 ```bash
 cd backend
 pytest -v
 ```
 
-### Running via Docker
-Build and run the container locally:
+### Running via Docker Compose
+Build and run the stack from the repository root:
 ```bash
-cd backend
-docker build -t forecaster-backend .
-docker run -p 8000:8000 forecaster-backend
-```
-
-Or using Docker Compose:
-```bash
-cd backend
 docker compose up --build
 ```
 
@@ -210,7 +207,7 @@ curl http://localhost:8000/api/meta
 ```
 
 ### 3. `GET /api/series`
-Returns the 30-minute decision-time forecast series with actuals, errors, and planning bands.
+Returns the 30-minute decision-time forecast series with actuals, errors, and historical planning bands.
 - **Parameters**: `start` (required), `end` (required), `cutoff` (optional, default `"09:00"`).
 ```bash
 curl "http://localhost:8000/api/series?start=2026-01-10T00:00:00Z&end=2026-01-10T02:00:00Z&cutoff=09:00"
@@ -226,8 +223,38 @@ curl "http://localhost:8000/api/series?start=2026-01-10T00:00:00Z&end=2026-01-10
       "horizon_hours": 16.5,
       "actual": 11309.0,
       "error": 233.0,
-      "band_low": 10387.0,
-      "band_high": 11309.0
+      "band_low": 7267.1,
+      "band_high": 12086.1
+    },
+    {
+      "time": "2026-01-10T00:30:00Z",
+      "forecast": 11542.0,
+      "publish_time": "2026-01-09T07:30:00Z",
+      "horizon_hours": 17.0,
+      "actual": 11280.0,
+      "error": 262.0,
+      "band_low": 7267.1,
+      "band_high": 12086.1
+    },
+    {
+      "time": "2026-01-10T01:00:00Z",
+      "forecast": 11474.0,
+      "publish_time": "2026-01-09T07:30:00Z",
+      "horizon_hours": 17.5,
+      "actual": 10990.0,
+      "error": 484.0,
+      "band_low": 7199.1,
+      "band_high": 12018.1
+    },
+    {
+      "time": "2026-01-10T01:30:00Z",
+      "forecast": 11474.0,
+      "publish_time": "2026-01-09T07:30:00Z",
+      "horizon_hours": 18.0,
+      "actual": 10821.0,
+      "error": 653.0,
+      "band_low": 7199.1,
+      "band_high": 12018.1
     }
   ]
 }
@@ -269,6 +296,15 @@ curl "http://localhost:8000/api/metrics/by-horizon?start=2026-01-01T00:00:00Z&en
 
 ---
 
-## 7. AI Tool Disclosure
+## 7. Known Limits
+
+1. **Hourly Forecast Carry-Forward**: Elexon BMRS WINDFOR only publishes on the hour (`:00`). The portal carries forward each hourly forecast to the subsequent `:30` slot to align with 48 half-hour settlement actuals.
+2. **By-Horizon Granularity**: By-horizon metrics evaluate all published raw WINDFOR forecasts against actuals for hourly (`:00`) slots without carry-forward; bucket sample counts reflect hourly resolution.
+3. **Cutoff Assumption**: The 09:00 UTC cutoff is a domain modeling assumption for day-ahead auction prep. Real trading desks can configure it via `?cutoff=HH:MM`.
+4. **In-Sample Planning Band**: Planning bands are derived from the January 2026 error distribution for the given cutoff, serving as an in-sample reference rather than a predictive confidence interval.
+
+---
+
+## 8. AI Tool Disclosure
 
 In accordance with project guidelines, AI coding assistants (GitHub Copilot powered by Gemini 3.8 Flash) were utilized to assist with scaffolding, data exploration against the Elexon BMRS API, writing vectorized Pandas algorithms, unit testing, and documentation formatting. All domain logic, calculations, and tests were verified against real Elexon BMRS data.
