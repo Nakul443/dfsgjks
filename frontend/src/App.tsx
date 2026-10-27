@@ -1,54 +1,155 @@
 
-// this file is the main entry point for the frontend application,
-// responsible for rendering the React components and managing the overall user interface
-
-import { useEffect, useState } from 'react'
-import { getJson } from './api/client'
-import type { MetaResponse } from './api/types'
+// this file is responsible for defining the main App component used in the frontend application
+// to manage state, handle user interactions, and coordinate data fetching from the backend API
+import { useEffect, useMemo, useState } from 'react'
+import { Controls } from './components/Controls'
+import {
+  useMeta,
+  useMetrics,
+  useMetricsByHorizon,
+  useMetricsByHour,
+  useSeries,
+} from './hooks/useWindData'
+import {
+  buildPreset,
+  FALLBACK_WINDOW,
+  getWindowFromMeta,
+  validateRange,
+  type DateRange,
+  type PresetKey,
+} from './lib/range'
 
 export function App() {
-  const [backendStatus, setBackendStatus] = useState<string>('checking...')
-  const [meta, setMeta] = useState<MetaResponse | null>(null)
+  const { data: meta, isLoading: isMetaLoading, error: metaError } = useMeta()
+
+  // Window bounds derived from API meta (or fallback)
+  const windowRange = useMemo(() => getWindowFromMeta(meta), [meta])
+
+  // Active user selections
+  const [range, setRange] = useState<DateRange>(FALLBACK_WINDOW)
+  const [cutoff, setCutoff] = useState<string>('09:00')
+  const [isInitialized, setIsInitialized] = useState(false)
+
+  // Once meta loads, initialize range to full month and cutoff to default
+  useEffect(() => {
+    if (meta && !isInitialized) {
+      const initialWin = getWindowFromMeta(meta)
+      setRange(initialWin)
+      if (meta.default_cutoff) {
+        setCutoff(meta.default_cutoff)
+      }
+      setIsInitialized(true)
+    }
+  }, [meta, isInitialized])
+
+  // Validation
+  const validationError = useMemo(() => {
+    return validateRange(range, windowRange)
+  }, [range, windowRange])
+
+  // Debounce range & cutoff (300ms) before querying API
+  const [debouncedRange, setDebouncedRange] = useState<DateRange>(range)
+  const [debouncedCutoff, setDebouncedCutoff] = useState<string>(cutoff)
 
   useEffect(() => {
-    getJson<{ status: string }>('/health')
-      .then((data) => {
-        setBackendStatus(data.status === 'ok' ? 'backend: ok' : `backend: ${data.status}`)
-      })
-      .catch((err) => {
-        setBackendStatus(`backend error: ${err.message}`)
-      })
+    if (validationError) return
 
-    getJson<MetaResponse>('/api/meta')
-      .then((metaData) => {
-        setMeta(metaData)
-        console.log('[WindBand] /api/meta received:', metaData)
-      })
-      .catch((err) => {
-        console.error('[WindBand] failed to load meta:', err)
-      })
-  }, [])
+    const timer = setTimeout(() => {
+      setDebouncedRange(range)
+      setDebouncedCutoff(cutoff)
+    }, 300)
+
+    return () => clearTimeout(timer)
+  }, [range, cutoff, validationError])
+
+  // Query hooks with debounced values, disabled if validation error exists
+  const isQueryEnabled = !validationError
+
+  const seriesQuery = useSeries(
+    debouncedRange.start,
+    debouncedRange.end,
+    debouncedCutoff,
+    isQueryEnabled
+  )
+
+  const metricsQuery = useMetrics(
+    debouncedRange.start,
+    debouncedRange.end,
+    debouncedCutoff,
+    isQueryEnabled
+  )
+
+  const byHourQuery = useMetricsByHour(
+    debouncedRange.start,
+    debouncedRange.end,
+    debouncedCutoff,
+    isQueryEnabled
+  )
+
+  const byHorizonQuery = useMetricsByHorizon(
+    debouncedRange.start,
+    debouncedRange.end,
+    isQueryEnabled
+  )
+
+  const handlePresetSelect = (preset: PresetKey) => {
+    const newRange = buildPreset(preset, windowRange)
+    setRange(newRange)
+  }
 
   return (
-    <div style={{ padding: '2rem', fontFamily: 'system-ui, sans-serif' }}>
-      <h1>WindBand</h1>
-      <p>UK Day-Ahead Wind Forecast Accuracy Portal</p>
-      <div
-        style={{
-          marginTop: '1rem',
-          padding: '0.5rem 1rem',
-          background: '#f0f4f8',
-          display: 'inline-block',
-          borderRadius: '4px',
-        }}
-      >
-        Status: <strong>{backendStatus}</strong>
-      </div>
-      {meta && (
-        <div style={{ marginTop: '1rem', fontSize: '0.9rem', color: '#4a5568' }}>
-          Data loaded: {meta.actuals.row_count} actual slots, default cutoff: {meta.default_cutoff}
+    <div className="app-container">
+      <header className="app-header">
+        <div className="header-titles">
+          <h1>WindBand</h1>
+          <p className="header-subtitle">
+            UK Day-Ahead Wind Forecast Accuracy Portal &amp; Decision-Time Intelligence
+          </p>
         </div>
-      )}
+        <div className="header-meta">
+          <span className="utc-note">Times in UTC (= UK local time in January)</span>
+          <span className="window-note">
+            Data window: 01 Jan 2026 – 31 Jan 2026
+          </span>
+        </div>
+      </header>
+
+      <Controls
+        range={range}
+        window={windowRange}
+        cutoff={cutoff}
+        errorMessage={validationError}
+        onRangeChange={setRange}
+        onCutoffChange={setCutoff}
+        onPresetSelect={handlePresetSelect}
+      />
+
+      <section style={{ padding: '1rem', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+        <h2 style={{ fontSize: '1rem', margin: '0 0 0.5rem 0' }}>Selection Status</h2>
+        <div style={{ fontSize: '0.875rem', color: '#475569', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+          <div>
+            <strong>Meta status:</strong> {isMetaLoading ? 'Loading metadata...' : metaError ? `Error: ${metaError.message}` : `Loaded (${meta?.actuals.row_count} actuals, ${meta?.forecasts.row_count} forecasts)`}
+          </div>
+          <div>
+            <strong>Active Range:</strong> {range.start} to {range.end}
+          </div>
+          <div>
+            <strong>Active Cutoff:</strong> {cutoff} (D-1 UTC)
+          </div>
+          <div>
+            <strong>Series Query:</strong> {validationError ? 'Paused (validation error)' : seriesQuery.isLoading ? 'Fetching series...' : seriesQuery.isError ? `Error: ${seriesQuery.error?.message}` : `Loaded ${seriesQuery.data?.count ?? 0} slots`}
+          </div>
+          <div>
+            <strong>Metrics Query:</strong> {validationError ? 'Paused' : metricsQuery.isLoading ? 'Fetching metrics...' : `MAE: ${metricsQuery.data?.mae ?? '—'} MW, Bias: ${metricsQuery.data?.bias ?? '—'} MW`}
+          </div>
+          <div>
+            <strong>By-Hour Query:</strong> {byHourQuery.isLoading ? 'Loading...' : `Loaded ${byHourQuery.data?.length ?? 0} hours`}
+          </div>
+          <div>
+            <strong>By-Horizon Query:</strong> {byHorizonQuery.isLoading ? 'Loading...' : `Loaded ${byHorizonQuery.data?.length ?? 0} buckets`}
+          </div>
+        </div>
+      </section>
     </div>
   )
 }
