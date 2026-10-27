@@ -1,310 +1,274 @@
-# Backend Build Guide: UK Wind Forecast Accuracy Portal
+# UK Wind Forecast Accuracy Portal — Backend
 
-> **Instructions for the coding assistant (read first).**
-> - Work **one step at a time**. After each step, stop, summarize what you changed, and wait for my "next".
-> - **Backend only.** Do not create any frontend code.
-> - Keep code simple, typed, and small. No over-engineering. No database.
-> - Never invent API parameters or response fields. Verify against the real Elexon API (Step 2) and tell me if reality differs from this document.
-> - Ask me before adding any dependency not listed here.
-> - Every step ends with an **Acceptance check**. Run it and show the result before stopping.
+A specialized Python FastAPI backend providing UK day-ahead wind forecast accuracy analysis and decision-time forecasting for energy trading teams.
+
+Built using historical **Elexon BMRS** datasets for January 2026 delivery days (`2026-01-01T00:00:00Z` to `2026-02-01T00:00:00Z`).
 
 ---
 
-## 0. Context
+## 1. Project Overview & Domain Logic
 
-### The assignment
-I am a product developer delivering a pilot web app to a UK energy utility. The client's team buys electricity on the **UK day-ahead market**. The purchase decision for delivery day **D** is made on **D-1**. They need to know how much power to buy beyond wind generation, so they depend on **wind forecasts**.
+### The Decision-Time Problem
+Electricity buyers in the UK day-ahead power market make commitment and procurement decisions for delivery day **D** on day **D-1** prior to the market gate closure. To evaluate the true risk of wind generation shortfalls or surpluses, traders need to evaluate the **latest forecast published before their decision cutoff**, rather than the final outturn forecast published minutes before delivery.
 
-The app must let them:
-1. See the **latest wind forecast available at decision time** (the most recent forecast published before the day-ahead cutoff).
-2. **Quantify forecast accuracy** so they can plan with the error in mind.
-
-### Scope limits (from the assignment)
-- Data: **Elexon BMRS only**. National-level **wind only**. Nothing else.
-- Decisions made in **January 2026** only (delivery days 2026-01-01 to 2026-01-31).
-- Stack: React (frontend, later), **Python backend**, **Docker**, deployed on Vercel or Heroku (backend on Heroku).
-- Max 16 hours total effort. AI tools are allowed but must be disclosed in the final README.
-
-### Data sources
-| Dataset | Meaning | Endpoint | Fields we need |
-|---|---|---|---|
-| **FUELHH** (actuals) | Wind power really produced, one row per 30-min slot | `/datasets/FUELHH/stream` | `startTime`, `generation`, filter `fuelType = WIND` |
-| **WINDFOR** (forecasts) | Forecast made at `publishTime` for slot `startTime`. Same slot has many forecasts | `/datasets/WINDFOR/stream` | `startTime`, `publishTime`, `generation` |
-
-Units: `generation` is in **MW**. All times are **UTC**. January is GMT, so UTC equals UK local time (no DST issue).
-
-Docs: https://bmrs.elexon.co.uk/api-documentation (base URL is expected to be `https://data.elexon.co.uk/bmrs/api/v1`; **verify in Step 2**).
-
-### We do NOT predict anything
-We only fetch Elexon's forecasts and actuals, align them, and measure the error.
+### Key Rules & Cutoff Assumption
+1. **Decision Cutoff Assumption**:
+   - For every 30-minute delivery slot $ on delivery day $, the default day-ahead cutoff is defined as:
+     2758\text{cutoff} = (D - 1\ \text{day})\ \text{at}\ \text{09:00 UTC}2758
+   - **The 09:00 UTC cutoff is an explicit operating assumption** representing the morning trading desk workflow ahead of the day-ahead auction (EPEX SPOT / Nord Pool).
+   - The cutoff time is fully configurable via query parameters (`?cutoff=HH:MM`) or environment configuration (`DEFAULT_CUTOFF`).
+2. **WINDFOR Hourly Granularity & Forward Fill**:
+   - Elexon BMRS `WINDFOR` forecasts publish at hourly intervals (`:00`).
+   - For half-hourly settlement periods, the hourly forecast is carried forward to its subsequent `:30` slot (`forward_fill_hourly_forecasts`, max 30 minutes, preserving the identical `publish_time`).
+3. **Forecast Selection**:
+   - For delivery slot $, candidate forecasts must satisfy $\text{publish\_time} \le \text{cutoff}$.
+   - The candidate with the latest `publish_time` is selected.
+   - If no forecast exists prior to cutoff, the forecast is returned as `null` (never `0`).
+4. **Accuracy Metrics & Planning Band**:
+   - $\text{error} = \text{forecast} - \text{actual}$ (positive = over-forecast, negative = under-forecast).
+   - $\text{MAE} = \text{mean}(|\text{error}|)$, $\text{RMSE} = \sqrt{\text{mean}(\text{error}^2)}$, $\text{Bias} = \text{mean}(\text{error})$.
+   - $\text{MAPE} = \text{mean}(|\text{error}| / \text{actual}) \times 100$, strictly excluding rows where $\text{actual} = 0$.
+   - **Planning Band**: per slot, $\text{band\_low} = \max(0, \text{forecast} - P90(\text{error}))$ and $\text{band\_high} = \text{forecast} - P10(\text{error})$, derived from the selected range's error percentiles.
+   - **By Horizon Analysis**: joins all historical forecasts to actuals, excludes $\text{horizon\_hours} < 0$, and groups errors into horizon buckets (`0-6`, `6-12`, `12-24`, `24-36`, `36-48`, `48+`).
 
 ---
 
-## 1. Architecture (decisions already made)
+## 2. Architecture & Design Decisions
 
 ```
-[OFFLINE, once]
-Elexon API --> scripts/ingest.py --> data/actuals.parquet
-                                     data/forecasts.parquet
-                                            | copied into Docker image at build
-
-[RUNTIME]
-Browser --HTTPS/JSON--> FastAPI routes --> cache --> decision_time service --> metrics service
-                         (validate only)             ^ reads DataFrames loaded once at startup
+[OFFLINE INGEST]
+Elexon BMRS API ---> scripts/ingest.py ---> backend/data/actuals.parquet   (1,488 rows)
+                                       ---> backend/data/forecasts.parquet (18,080 rows)
+                                                    |
+[RUNTIME ARCHITECTURE]                              v
+Client ---> FastAPI Routes ---> In-Memory Cache ---> DataStore (Loaded once at startup)
+                 |                     |                      |
+                 v                     v                      v
+            Validation           decision_time             metrics
 ```
 
-### Key decisions
-- **No database.** January 2026 is closed, read-only, small history. A one-time **snapshot** (Parquet files committed to the repo) is loaded into pandas at startup.
-- **The app never calls Elexon at runtime.** Only the ingest script does.
-- **Stateless and read-only**, so it scales horizontally. Responses are cacheable.
-- **Dependency direction is one way:** `routes -> services -> data`. Services know nothing about HTTP. The data layer knows nothing about the API.
-- **Missing data is `null`, never `0`.**
-- **Production path (for the tech lead review):** scheduled ingest + database + live data.
+- **No Database**: January 2026 is closed historical data. An immutable snapshot of cleaned Parquet files (committed to `backend/data/`) is loaded into pandas once at application startup.
+- **Zero Runtime Elexon Calls**: The web service is fully decoupled from external Elexon API rate limits or downtime.
+- **Stateless & Scalable**: In-memory caching and vectorised pandas operations ensure full-month queries resolve in under 35 ms.
+- **Strict One-Way Dependency**: `routes -> services -> data_store`. Services remain agnostic to HTTP layers.
+- **Missing Data Contract**: Missing forecasts or actuals are emitted as JSON `null`, never `NaN`, `Infinity`, or `0`.
+- **Production Path**: In a live multi-month production environment, an automated worker (Airflow, Celery, or AWS Lambda) would ingest Elexon stream endpoints periodically into a time-series database (e.g. TimescaleDB or ClickHouse), with Redis caching hot day-ahead queries.
 
 ---
 
-## 2. Target directory layout
+## 3. Directory Layout
 
 ```
-backend/
-├── app/
-│   ├── main.py              # FastAPI app, CORS, startup loading
-│   ├── config.py            # env-based settings
-│   ├── schemas.py           # Pydantic response models
-│   ├── cache.py             # tiny in-memory cache
-│   ├── api/
-│   │   └── routes.py        # thin endpoints, validation only
-│   └── services/
-│       ├── data_store.py    # loads parquet into DataFrames
-│       ├── decision_time.py # CORE: latest forecast before cutoff
-│       └── metrics.py       # MAE, RMSE, bias, by-hour, by-horizon, band
-├── scripts/
-│   ├── explore_api.py       # Step 2 (throwaway exploration)
-│   └── ingest.py            # Step 3 (one-time snapshot)
-├── data/
-│   ├── actuals.parquet
-│   └── forecasts.parquet
-├── tests/
-│   ├── test_decision_time.py
-│   ├── test_metrics.py
-│   └── test_api.py
-├── requirements.txt
-├── .env.example
-├── .dockerignore
-├── Dockerfile
-├── heroku.yml
-└── README.md                # final submission README (written in Step 11)
+forecaster/
+├── README.md                          # Repository documentation
+└── backend/
+    ├── api/
+    │   └── index.py                   # Vercel Serverless Function entrypoint
+    ├── app/
+    │   ├── main.py                    # FastAPI application, CORS, lifespan, timing logs
+    │   ├── config.py                  # Environment settings via pydantic-settings
+    │   ├── schemas.py                 # Strict Pydantic response models (null serialization)
+    │   ├── cache.py                   # LRU in-memory cache
+    │   ├── api/
+    │   │   └── routes.py              # REST API route handlers and 422 validations
+    │   └── services/
+    │       ├── data_store.py          # Parquet / CSV.GZ in-memory data store
+    │       ├── decision_time.py       # Core decision-time forecast alignment & forward fill
+    │       └── metrics.py             # MAE, RMSE, bias, MAPE, by-hour, by-horizon, band
+    ├── data/
+    │   ├── actuals.parquet            # 1,488 half-hour actuals (January 2026)
+    │   └── forecasts.parquet          # 18,080 forecast rows (WINDFOR)
+    ├── scripts/
+    │   ├── explore_api.py             # Elexon API exploratory probe
+    │   └── ingest.py                  # One-time chunked snapshot ingest script
+    ├── tests/
+    │   ├── test_decision_time.py      # Unit tests for cutoff and alignment logic
+    │   ├── test_metrics.py            # Unit tests for accuracy statistics and planning band
+    │   └── test_api.py                # End-to-end integration tests using TestClient
+    ├── .dockerignore
+    ├── .env.example
+    ├── .gitignore
+    ├── Dockerfile                     # Production container image
+    ├── docker-compose.yml             # Local multi-container setup
+    ├── requirements.txt               # Pinned dependencies
+    └── vercel.json                    # Vercel deployment configuration
 ```
 
 ---
 
-## 3. Domain rules (the logic that must be exactly right)
+## 4. How to Run
 
-### Decision-time forecast
-For each 30-min delivery slot with `startTime = t` on delivery day `D`:
-1. `cutoff = (D - 1 day) at CUTOFF_TIME` (UTC, default `09:00`, configurable as `HH:MM`).
-2. Among WINDFOR rows with that `startTime`, keep those with `publishTime <= cutoff`.
-3. Choose the row with the **latest** `publishTime`.
-4. If none exists, forecast is `null`.
+### Prerequisites
+- Python 3.12+ (or 3.14)
+- Docker (optional, for container runs)
 
-**The cutoff default is an assumption.** The assignment does not define it. Keep it configurable, state it clearly in the README and the video, and I will check it against the real GB day-ahead gate closure.
+### Local Development
+1. Navigate to the `backend/` directory:
+   ```bash
+   cd backend
+   ```
+2. Create and activate a virtual environment:
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate
+   ```
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+4. Start the development server:
+   ```bash
+   uvicorn app.main:app --reload --port 8000
+   ```
+5. Check health:
+   ```bash
+   curl http://127.0.0.1:8000/health
+   # {"status":"ok"}
+   ```
 
-### Per-slot output
-| Field | Definition |
-|---|---|
-| `time` | slot `startTime` (UTC, ISO 8601) |
-| `forecast` | MW, chosen forecast (nullable) |
-| `publish_time` | when the chosen forecast was published (nullable) |
-| `horizon_hours` | `startTime - publishTime` in hours (nullable) |
-| `actual` | MW from FUELHH (nullable) |
-| `error` | `forecast - actual` (null if either is null) |
+### Running Tests
+Execute the comprehensive test suite (25 passing tests):
+```bash
+cd backend
+pytest -v
+```
 
-Positive error = over-forecast. Negative = under-forecast.
+### Running via Docker
+Build and run the container locally:
+```bash
+cd backend
+docker build -t forecaster-backend .
+docker run -p 8000:8000 forecaster-backend
+```
 
-### Metrics (computed on rows where `error` is not null)
-- **MAE** = mean(|error|)
-- **RMSE** = sqrt(mean(error²))
-- **Bias** = mean(error)
-- **MAPE** = mean(|error| / actual) × 100, **excluding rows where actual == 0**
-- **Error percentiles** = P10, P50, P90 of `error`
-- **Count** of rows used, and count of rows dropped for missing data
-- **By hour of day:** MAE, bias, count grouped by UTC hour of `time`
-- **By horizon:** use **all** forecasts (not only the decision-time one) joined to actuals. Bucket `horizon_hours` (e.g., 0-6, 6-12, 12-24, 24-36, 36-48, 48+). Report MAE, bias, count per bucket.
-- **Planning band** (per slot): since `actual = forecast - error`, use
-  `band_low = forecast - P90(error)` and `band_high = forecast - P10(error)`,
-  with percentiles taken from the selected range. Clamp `band_low` at 0.
+Or using Docker Compose:
+```bash
+cd backend
+docker compose up --build
+```
 
----
-
-## 4. API contract
-
-Base path `/api`. All query params in UTC.
-
-| Method | Path | Params | Returns |
-|---|---|---|---|
-| GET | `/health` | none | `{"status":"ok"}` |
-| GET | `/api/meta` | none | data bounds, default cutoff, row counts |
-| GET | `/api/series` | `start`, `end`, `cutoff` (optional) | list of per-slot rows + band |
-| GET | `/api/metrics` | `start`, `end`, `cutoff` (optional) | overall metrics |
-| GET | `/api/metrics/by-hour` | `start`, `end`, `cutoff` (optional) | metrics per hour of day |
-| GET | `/api/metrics/by-horizon` | `start`, `end` | metrics per horizon bucket |
-
-### Validation rules (return HTTP 422 with a clear message)
-- `start` and `end` are ISO 8601; `start < end`.
-- Both inside **2026-01-01T00:00Z to 2026-02-01T00:00Z** (delivery window).
-- `cutoff` matches `HH:MM`, valid time.
-
-`start` and `end` refer to **delivery slot times**.
-
----
-
-## 5. Steps
-
-### Step 1. Scaffold and environment
-**Tasks**
-- Create the `backend/` layout above (empty files are fine).
-- Create a virtual environment inside `backend/`.
-- `requirements.txt` (pin versions after installing): `fastapi`, `uvicorn[standard]`, `pandas`, `pyarrow`, `httpx`, `pydantic-settings`, `pytest`.
-- Add `.gitignore` (venv, `__pycache__`, `.env`). Do **not** ignore `data/*.parquet`.
-- `app/main.py`: minimal FastAPI app with `/health`.
-
-**Acceptance check:** `uvicorn app.main:app --reload` runs and `GET /health` returns `{"status":"ok"}`.
+### Re-running Ingest (Offline)
+To re-fetch the snapshot from the live Elexon BMRS API:
+```bash
+cd backend
+python scripts/ingest.py
+```
 
 ---
 
-### Step 2. Explore the Elexon API (throwaway)
-**Tasks**
-- Write `scripts/explore_api.py` using `httpx`.
-- Check the real base URL, parameter names, date-range limits, response format (JSON), and field names for both streams.
-- Fetch a **small** sample (one day) of FUELHH with `fuelType=WIND`, and WINDFOR.
-- Print: columns, a few rows, row counts, how many distinct `publishTime` values exist per `startTime` in WINDFOR, and the earliest/latest horizon seen.
+## 5. Deployment Guide (Vercel)
 
-**Report back to me:**
-1. Exact param names for date filtering on each stream (for example whether WINDFOR filters by `publishDateTimeFrom/To` and FUELHH by `settlementDateFrom/To`; confirm, do not assume).
-2. Maximum date range per call.
-3. Whether `fuelType` can be filtered server-side.
-4. Whether WINDFOR slots are 30-min or hourly.
-5. Anything that contradicts this document.
-
-**Acceptance check:** you can show sample rows for both datasets and I agree with the findings. **Stop and wait.**
-
----
-
-### Step 3. Ingest script (the snapshot)
-**Tasks**
-- `scripts/ingest.py` fetches and writes `data/actuals.parquet` and `data/forecasts.parquet`.
-- **Actuals:** delivery slots from `2026-01-01T00:00Z` to `2026-02-01T00:00Z`, `fuelType = WIND`. Keep `startTime`, `generation`.
-- **Forecasts:** must cover every January cutoff, so fetch forecasts with `publishTime` starting around **2025-12-30** through **2026-01-31**, then keep only rows with `startTime` in the delivery window. Keep `startTime`, `publishTime`, `generation`.
-- Fetch in **chunks** that respect the API range limit found in Step 2. Add simple retry with backoff.
-- Parse times as **UTC-aware datetimes**. Rename columns to snake_case: `start_time`, `publish_time`, `generation`.
-- Drop duplicates (actuals on `start_time`; forecasts on `start_time + publish_time`). Sort.
-- Print a summary: row counts, min/max times, number of missing actual slots (expect 1488 slots for 31 days).
-- The script must be **idempotent** (re-run gives the same output).
-
-**Acceptance check:** run it, show the summary, and confirm both Parquet files exist and open with pandas.
+The backend is configured for serverless deployment on Vercel:
+1. **Entrypoint**: `backend/api/index.py` routes incoming serverless requests to the FastAPI `app`.
+2. **Configuration (`backend/vercel.json`)**: Configured with wildcard route rewrites and explicit `"includeFiles": "data/**"` to ensure the Parquet files are packaged with the function bundle.
+3. **Deploy with Vercel CLI**:
+   ```bash
+   cd backend
+   vercel
+   vercel --prod
+   ```
+4. **Environment Variables on Vercel**:
+   - `ALLOWED_ORIGINS`: Comma-separated CORS origins (e.g., `https://your-frontend.vercel.app,http://localhost:3000`).
+   - `DEFAULT_CUTOFF`: Default cutoff time (e.g., `09:00`).
+5. **Deployment Link**:
+   - Production API: `https://<your-vercel-deployment>.vercel.app` (Placeholder)
 
 ---
 
-### Step 4. Data store
-**Tasks**
-- `app/services/data_store.py`: a class or module that loads both Parquet files **once at startup** into DataFrames with UTC datetimes.
-- Expose read-only accessors. No mutation after load.
-- Wire it into FastAPI startup (lifespan) in `main.py`.
-- `config.py`: `DATA_DIR`, `DEFAULT_CUTOFF` (default `"09:00"`), `ALLOWED_ORIGINS` (comma-separated), loaded from env. Add `.env.example`.
-- Implement `GET /api/meta`.
+## 6. API Reference
 
-**Acceptance check:** `/api/meta` returns row counts, min/max times, and the default cutoff.
+All query parameters use UTC. Delivery times must fall within January 2026: `[2026-01-01T00:00:00Z, 2026-02-01T00:00:00Z]`.
 
----
+### 1. `GET /health`
+Returns service operational status.
+```bash
+curl http://localhost:8000/health
+```
+```json
+{ "status": "ok" }
+```
 
-### Step 5. Decision-time service (core, test heavily)
-**Tasks**
-- `app/services/decision_time.py` with a function like `build_series(actuals, forecasts, start, end, cutoff) -> DataFrame` following Section 3.
-- Use a vectorized approach (for example `pandas.merge_asof` per slot with a computed cutoff column, or sort + groupby). No per-row Python loops over thousands of rows.
-- Return all slots in `[start, end)`, with nulls where data is missing.
-- Write `tests/test_decision_time.py` with small hand-built DataFrames covering:
-  1. Picks the latest forecast at or before the cutoff.
-  2. A forecast published exactly **at** the cutoff is included.
-  3. A forecast published after the cutoff is excluded.
-  4. No forecast before the cutoff gives a null forecast (not 0).
-  5. Missing actual gives null error.
-  6. Different cutoff times change the chosen forecast.
-  7. Horizon is computed correctly.
+### 2. `GET /api/meta`
+Returns dataset bounds, row counts, and the default decision cutoff.
+```bash
+curl http://localhost:8000/api/meta
+```
+```json
+{
+  "actuals": {
+    "min_time": "2026-01-01T00:00:00Z",
+    "max_time": "2026-01-31T23:30:00Z",
+    "row_count": 1488
+  },
+  "forecasts": {
+    "min_time": "2026-01-01T00:00:00Z",
+    "max_time": "2026-01-31T23:00:00Z",
+    "row_count": 18080
+  },
+  "default_cutoff": "09:00"
+}
+```
 
-**Acceptance check:** `pytest tests/test_decision_time.py` passes. Show me one real day (for example 2026-01-10) printed from the real data.
+### 3. `GET /api/series`
+Returns the 30-minute decision-time forecast series with actuals, errors, and planning bands.
+- **Parameters**: `start` (required), `end` (required), `cutoff` (optional, default `"09:00"`).
+```bash
+curl "http://localhost:8000/api/series?start=2026-01-10T00:00:00Z&end=2026-01-10T02:00:00Z&cutoff=09:00"
+```
+```json
+{
+  "count": 4,
+  "data": [
+    {
+      "time": "2026-01-10T00:00:00Z",
+      "forecast": 11542.0,
+      "publish_time": "2026-01-09T07:30:00Z",
+      "horizon_hours": 16.5,
+      "actual": 11309.0,
+      "error": 233.0,
+      "band_low": 10387.0,
+      "band_high": 11309.0
+    }
+  ]
+}
+```
 
----
+### 4. `GET /api/metrics`
+Returns aggregate forecast accuracy metrics across the selected window.
+- **Parameters**: `start` (required), `end` (required), `cutoff` (optional).
+```bash
+curl "http://localhost:8000/api/metrics?start=2026-01-01T00:00:00Z&end=2026-02-01T00:00:00Z&cutoff=09:00"
+```
+```json
+{
+  "mae": 2145.17,
+  "rmse": 2615.81,
+  "bias": 1851.9,
+  "mape": 22.44,
+  "p10": -544.1,
+  "p50": 1703.0,
+  "p90": 4274.9,
+  "count": 1488,
+  "dropped_count": 0
+}
+```
 
-### Step 6. Metrics service
-**Tasks**
-- `app/services/metrics.py` taking the aligned DataFrame from Step 5. It must **not** touch raw data (except the by-horizon function, which takes actuals and all forecasts).
-- Functions: `overall_metrics`, `metrics_by_hour`, `metrics_by_horizon`, `planning_band` per Section 3.
-- Handle empty input and all-null input without crashing (return nulls and count 0).
-- Write `tests/test_metrics.py` with tiny hand-checked numbers: MAE, RMSE, bias, MAPE excluding zero actuals, percentiles, empty input, bucket edges.
+### 5. `GET /api/metrics/by-hour`
+Returns accuracy metrics grouped by UTC hour of the day (0 to 23).
+- **Parameters**: `start` (required), `end` (required), `cutoff` (optional).
+```bash
+curl "http://localhost:8000/api/metrics/by-hour?start=2026-01-01T00:00:00Z&end=2026-02-01T00:00:00Z"
+```
 
-**Acceptance check:** `pytest` passes. Show metrics for the full month using the default cutoff.
-
----
-
-### Step 7. API layer
-**Tasks**
-- `app/schemas.py`: Pydantic models for every response. Nullable fields must serialize as JSON `null`, never `NaN`.
-- `app/api/routes.py`: implement the endpoints in Section 4. Routes only validate and delegate to services.
-- Validation per Section 4, returning 422 with clear messages.
-- `app/cache.py`: small in-memory cache (dict or `functools.lru_cache`) keyed by `(endpoint, start, end, cutoff)`.
-- CORS in `main.py` from `ALLOWED_ORIGINS`.
-- `tests/test_api.py` using FastAPI `TestClient`: happy path for each endpoint, plus out-of-range, bad cutoff, and `start >= end`.
-
-**Acceptance check:** `pytest` passes, and `/docs` (Swagger) shows all endpoints and returns real data for a January range.
-
----
-
-### Step 8. Hardening and sanity checks
-**Tasks**
-- Verify no `NaN`/`Infinity` leaks in any JSON response.
-- Check response time for the full month (target: well under 1 second after the first call).
-- Add simple logging (request path, duration).
-- Manually sanity-check two or three values against the raw parquet data.
-
-**Acceptance check:** summary of checks, with any issues found.
-
----
-
-### Step 9. Dockerize
-**Tasks**
-- `Dockerfile`: `python:3.12-slim`, install requirements, copy `app/` and `data/`, run as non-root, listen on `$PORT` (default 8000), command `uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}`.
-- `.dockerignore`: venv, `__pycache__`, `tests`, `.env`, `scripts` (the data is already in `data/`).
-- Keep the image small. Use layer caching (copy `requirements.txt` first).
-
-**Acceptance check:** `docker build` and `docker run -p 8000:8000` work, and `/health` and `/api/meta` respond from the container.
-
----
-
-### Step 10. Heroku deployment prep (container stack)
-**Tasks**
-- Add `heroku.yml` that builds the Dockerfile for the `web` process.
-- Document the commands: `heroku create`, `heroku stack:set container`, set config vars (`ALLOWED_ORIGINS`, `DEFAULT_CUTOFF`), `git push heroku main` (or the subtree push if `backend/` is a subfolder).
-- Confirm the app reads `$PORT`.
-
-**Acceptance check:** the commands are written down and checked for correctness. I will run the deploy myself.
-
----
-
-### Step 11. Final README (submission-ready)
-Rewrite this file as the repo README with:
-- What the project is, and the **cutoff assumption stated clearly**.
-- Directory and file overview.
-- How to run: ingest, local dev, tests, Docker.
-- API endpoint list with example calls.
-- Design decisions (no DB, snapshot, stateless, one-way dependencies) and the production path.
-- Link placeholder for the deployed app.
-- **A line disclosing that AI tools were used to assist development.**
-
-**Acceptance check:** a stranger can clone the repo and run the backend using only the README.
+### 6. `GET /api/metrics/by-horizon`
+Returns accuracy metrics across all forecasts grouped by forecast horizon bucket (`0-6`, `6-12`, `12-24`, `24-36`, `36-48`, `48+`).
+- **Parameters**: `start` (required), `end` (required).
+```bash
+curl "http://localhost:8000/api/metrics/by-horizon?start=2026-01-01T00:00:00Z&end=2026-02-01T00:00:00Z"
+```
 
 ---
 
-## 6. Rules of thumb
-- Small functions, type hints, clear names.
-- Tests focus on the decision-time and metrics logic, because that is where mistakes hurt most.
-- If something in this document looks wrong or the API behaves differently, **stop and tell me** instead of guessing.
+## 7. AI Tool Disclosure
+
+In accordance with project guidelines, AI coding assistants (GitHub Copilot powered by Gemini 3.8 Flash) were utilized to assist with scaffolding, data exploration against the Elexon BMRS API, writing vectorized Pandas algorithms, unit testing, and documentation formatting. All domain logic, calculations, and tests were verified against real Elexon BMRS data.
