@@ -3,6 +3,7 @@
 // to manage state, handle user interactions, and coordinate data fetching from the backend API
 import { useEffect, useMemo, useState } from 'react'
 import { Controls } from './components/Controls'
+import { SeriesChart } from './components/SeriesChart'
 import {
   useMeta,
   useMetrics,
@@ -123,6 +124,17 @@ export function App() {
         onCutoffChange={setCutoff}
         onPresetSelect={handlePresetSelect}
       />
+
+      <main className="main-content-layout">
+        <div className="series-chart-column">
+          <SeriesChart
+            data={seriesQuery.data?.data ?? []}
+            isLoading={seriesQuery.isLoading}
+            isError={seriesQuery.isError}
+            errorMessage={seriesQuery.error?.message}
+          />
+        </div>
+      </main>
 
       <section style={{ padding: '1rem', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
         <h2 style={{ fontSize: '1rem', margin: '0 0 0.5rem 0' }}>Selection Status</h2>
