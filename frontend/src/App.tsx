@@ -3,6 +3,8 @@
 // to manage state, handle user interactions, and coordinate data fetching from the backend API
 import { useEffect, useMemo, useState } from 'react'
 import { Controls } from './components/Controls'
+import { KpiStrip } from './components/KpiStrip'
+import { MetricsPanel } from './components/MetricsPanel'
 import { SeriesChart } from './components/SeriesChart'
 import {
   useMeta,
@@ -125,6 +127,12 @@ export function App() {
         onPresetSelect={handlePresetSelect}
       />
 
+      <KpiStrip
+        series={seriesQuery.data?.data}
+        metrics={metricsQuery.data}
+        isLoading={seriesQuery.isLoading || metricsQuery.isLoading}
+      />
+
       <main className="main-content-layout">
         <div className="series-chart-column">
           <SeriesChart
@@ -132,6 +140,14 @@ export function App() {
             isLoading={seriesQuery.isLoading}
             isError={seriesQuery.isError}
             errorMessage={seriesQuery.error?.message}
+          />
+        </div>
+        <div className="metrics-panel-column">
+          <MetricsPanel
+            metrics={metricsQuery.data}
+            isLoading={metricsQuery.isLoading}
+            isError={metricsQuery.isError}
+            errorMessage={metricsQuery.error?.message}
           />
         </div>
       </main>

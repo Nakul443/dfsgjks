@@ -325,6 +325,250 @@ body {
   font-size: 0.75rem;
 }
 
+/* KPI Strip */
+.kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+}
+
+.kpi-card {
+  background: var(--color-card-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 1.15rem 1.25rem;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.kpi-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+
+.kpi-value-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.kpi-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--color-text-main);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.kpi-unit {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.kpi-sub {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.kpi-card-bias.kpi-over {
+  border-left: 4px solid #ef4444;
+}
+
+.kpi-card-bias.kpi-under {
+  border-left: 4px solid #0284c7;
+}
+
+.kpi-card-bias.kpi-neutral {
+  border-left: 4px solid #94a3b8;
+}
+
+.kpi-bias-text {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--color-text-main);
+}
+
+.kpi-over .kpi-bias-text {
+  color: #dc2626;
+}
+
+.kpi-under .kpi-bias-text {
+  color: #0284c7;
+}
+
+/* Two-column Main Dashboard Layout */
+.main-content-layout {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 1.5rem;
+  align-items: stretch;
+}
+
+.series-chart-column {
+  min-width: 0;
+}
+
+/* Metrics Panel */
+.metrics-panel {
+  background: var(--color-card-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 1.25rem;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 0.75rem;
+}
+
+.panel-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--color-text-main);
+}
+
+.metrics-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.metric-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.metric-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.metric-name {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-main);
+}
+
+.metric-help {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.metric-num {
+  display: flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.metric-val {
+  font-size: 1.1rem;
+  font-weight: 700;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: var(--color-text-main);
+}
+
+.metric-unit {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.metric-divider {
+  height: 1px;
+  background-color: var(--color-border);
+  margin: 0.35rem 0;
+}
+
+.metric-section-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+
+.percentiles-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+}
+
+.percentile-box {
+  background: #f8fafc;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.p-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.p-val {
+  font-size: 0.95rem;
+  font-weight: 700;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: var(--color-text-main);
+  margin: 0.15rem 0;
+}
+
+.p-desc {
+  font-size: 0.65rem;
+  color: var(--color-text-muted);
+}
+
+.sample-counts-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.count-val {
+  font-weight: 600;
+  color: var(--color-text-main);
+  margin-left: 0.35rem;
+}
+
+.metrics-placeholder {
+  min-height: 380px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+@media (max-width: 1024px) {
+  .main-content-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 768px) {
   .controls-row {
     flex-direction: column;

@@ -18,6 +18,19 @@ export function formatPercent(value: number | null | undefined): string {
   return `${value.toFixed(1)}%`
 }
 
+export function formatBiasText(bias: number | null | undefined): string {
+  if (bias === null || bias === undefined || isNaN(bias)) {
+    return '—'
+  }
+  if (bias > 0) {
+    return `Over-forecast by ${formatMW(bias)} MW on avg`
+  }
+  if (bias < 0) {
+    return `Under-forecast by ${formatMW(Math.abs(bias))} MW on avg`
+  }
+  return 'Zero bias on avg'
+}
+
 export function formatUtcTime(isoString: string | null | undefined): string {
   if (!isoString) return '—'
   const date = new Date(isoString)
