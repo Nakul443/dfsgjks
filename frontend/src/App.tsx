@@ -2,6 +2,8 @@
 // this file is responsible for defining the main App component used in the frontend application
 // to manage state, handle user interactions, and coordinate data fetching from the backend API
 import { useEffect, useMemo, useState } from 'react'
+import { ByHorizonChart } from './components/ByHorizonChart'
+import { ByHourChart } from './components/ByHourChart'
 import { Controls } from './components/Controls'
 import { KpiStrip } from './components/KpiStrip'
 import { MetricsPanel } from './components/MetricsPanel'
@@ -151,6 +153,21 @@ export function App() {
           />
         </div>
       </main>
+
+      <section className="pattern-charts-grid" aria-label="Error Pattern Analysis">
+        <ByHourChart
+          data={byHourQuery.data}
+          isLoading={byHourQuery.isLoading}
+          isError={byHourQuery.isError}
+          errorMessage={byHourQuery.error?.message}
+        />
+        <ByHorizonChart
+          data={byHorizonQuery.data}
+          isLoading={byHorizonQuery.isLoading}
+          isError={byHorizonQuery.isError}
+          errorMessage={byHorizonQuery.error?.message}
+        />
+      </section>
 
       <section style={{ padding: '1rem', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
         <h2 style={{ fontSize: '1rem', margin: '0 0 0.5rem 0' }}>Selection Status</h2>

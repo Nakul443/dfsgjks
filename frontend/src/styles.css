@@ -563,8 +563,26 @@ body {
   text-align: center;
 }
 
+/* Secondary Pattern Charts Grid */
+.pattern-charts-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+}
+
+.chart-caption {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+  margin: 0.5rem 0 0 0;
+  text-align: right;
+}
+
 @media (max-width: 1024px) {
   .main-content-layout {
+    grid-template-columns: 1fr;
+  }
+  .pattern-charts-grid {
     grid-template-columns: 1fr;
   }
 }
