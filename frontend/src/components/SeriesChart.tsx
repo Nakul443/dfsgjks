@@ -17,12 +17,14 @@ import {
 } from 'recharts'
 import type { SeriesItem } from '../api/types'
 import { formatAxisDate, formatMW, formatUtcTime } from '../lib/format'
+import { EmptyState, ErrorBox } from './States'
 
 interface SeriesChartProps {
   data: SeriesItem[]
   isLoading?: boolean
   isError?: boolean
   errorMessage?: string
+  onRetry?: () => void
 }
 
 interface ChartRow extends SeriesItem {
@@ -83,6 +85,7 @@ export const SeriesChart: React.FC<SeriesChartProps> = ({
   isLoading,
   isError,
   errorMessage,
+  onRetry,
 }) => {
   if (isLoading) {
     return (
@@ -95,9 +98,12 @@ export const SeriesChart: React.FC<SeriesChartProps> = ({
 
   if (isError) {
     return (
-      <div className="chart-card chart-placeholder error-box" role="alert">
-        <p>⚠️ Unable to load series data.</p>
-        <small>{errorMessage || 'An error occurred while fetching the series.'}</small>
+      <div className="chart-card chart-placeholder">
+        <ErrorBox
+          title="Unable to load series data"
+          message={errorMessage || 'An error occurred while fetching the series.'}
+          onRetry={onRetry}
+        />
       </div>
     )
   }
@@ -105,7 +111,10 @@ export const SeriesChart: React.FC<SeriesChartProps> = ({
   if (!data || data.length === 0) {
     return (
       <div className="chart-card chart-placeholder">
-        <p>No delivery slots found for the selected range.</p>
+        <EmptyState
+          title="No delivery slots found"
+          message="No forecast or actual data points exist for the selected date range."
+        />
       </div>
     )
   }

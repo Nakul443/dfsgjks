@@ -6,8 +6,10 @@ import { ByHorizonChart } from './components/ByHorizonChart'
 import { ByHourChart } from './components/ByHourChart'
 import { Controls } from './components/Controls'
 import { KpiStrip } from './components/KpiStrip'
+import { MethodologyNote } from './components/MethodologyNote'
 import { MetricsPanel } from './components/MetricsPanel'
 import { SeriesChart } from './components/SeriesChart'
+import { ErrorBox } from './components/States'
 import {
   useMeta,
   useMetrics,
@@ -129,6 +131,14 @@ export function App() {
         onPresetSelect={handlePresetSelect}
       />
 
+      {metaError && (
+        <ErrorBox
+          title="Failed to connect to backend"
+          message={metaError.message}
+          onRetry={() => window.location.reload()}
+        />
+      )}
+
       <KpiStrip
         series={seriesQuery.data?.data}
         metrics={metricsQuery.data}
@@ -142,6 +152,7 @@ export function App() {
             isLoading={seriesQuery.isLoading}
             isError={seriesQuery.isError}
             errorMessage={seriesQuery.error?.message}
+            onRetry={() => seriesQuery.refetch()}
           />
         </div>
         <div className="metrics-panel-column">
@@ -150,6 +161,7 @@ export function App() {
             isLoading={metricsQuery.isLoading}
             isError={metricsQuery.isError}
             errorMessage={metricsQuery.error?.message}
+            onRetry={() => metricsQuery.refetch()}
           />
         </div>
       </main>
@@ -160,41 +172,32 @@ export function App() {
           isLoading={byHourQuery.isLoading}
           isError={byHourQuery.isError}
           errorMessage={byHourQuery.error?.message}
+          onRetry={() => byHourQuery.refetch()}
         />
         <ByHorizonChart
           data={byHorizonQuery.data}
           isLoading={byHorizonQuery.isLoading}
           isError={byHorizonQuery.isError}
           errorMessage={byHorizonQuery.error?.message}
+          onRetry={() => byHorizonQuery.refetch()}
         />
       </section>
 
-      <section style={{ padding: '1rem', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
-        <h2 style={{ fontSize: '1rem', margin: '0 0 0.5rem 0' }}>Selection Status</h2>
-        <div style={{ fontSize: '0.875rem', color: '#475569', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-          <div>
-            <strong>Meta status:</strong> {isMetaLoading ? 'Loading metadata...' : metaError ? `Error: ${metaError.message}` : `Loaded (${meta?.actuals.row_count} actuals, ${meta?.forecasts.row_count} forecasts)`}
-          </div>
-          <div>
-            <strong>Active Range:</strong> {range.start} to {range.end}
-          </div>
-          <div>
-            <strong>Active Cutoff:</strong> {cutoff} (D-1 UTC)
-          </div>
-          <div>
-            <strong>Series Query:</strong> {validationError ? 'Paused (validation error)' : seriesQuery.isLoading ? 'Fetching series...' : seriesQuery.isError ? `Error: ${seriesQuery.error?.message}` : `Loaded ${seriesQuery.data?.count ?? 0} slots`}
-          </div>
-          <div>
-            <strong>Metrics Query:</strong> {validationError ? 'Paused' : metricsQuery.isLoading ? 'Fetching metrics...' : `MAE: ${metricsQuery.data?.mae ?? '—'} MW, Bias: ${metricsQuery.data?.bias ?? '—'} MW`}
-          </div>
-          <div>
-            <strong>By-Hour Query:</strong> {byHourQuery.isLoading ? 'Loading...' : `Loaded ${byHourQuery.data?.length ?? 0} hours`}
-          </div>
-          <div>
-            <strong>By-Horizon Query:</strong> {byHorizonQuery.isLoading ? 'Loading...' : `Loaded ${byHorizonQuery.data?.length ?? 0} buckets`}
-          </div>
-        </div>
-      </section>
+      <MethodologyNote />
+
+      <footer className="dashboard-status-footer">
+        <span className="status-item">
+          <strong>Meta status:</strong> {isMetaLoading ? 'Loading metadata...' : metaError ? `Error: ${metaError.message}` : `Loaded (${meta?.actuals.row_count} actuals, ${meta?.forecasts.row_count} forecasts)`}
+        </span>
+        <span className="status-separator">•</span>
+        <span className="status-item">
+          <strong>Active Cutoff:</strong> {cutoff} (D-1 UTC)
+        </span>
+        <span className="status-separator">•</span>
+        <span className="status-item">
+          <strong>Status:</strong> {validationError ? 'Paused (validation error)' : seriesQuery.isLoading ? 'Updating...' : 'Ready'}
+        </span>
+      </footer>
     </div>
   )
 }

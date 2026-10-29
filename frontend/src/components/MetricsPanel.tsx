@@ -5,12 +5,14 @@
 import React from 'react'
 import type { MetricsResponse } from '../api/types'
 import { formatMW, formatPercent } from '../lib/format'
+import { EmptyState, ErrorBox } from './States'
 
 interface MetricsPanelProps {
   metrics?: MetricsResponse | null
   isLoading?: boolean
   isError?: boolean
   errorMessage?: string
+  onRetry?: () => void
 }
 
 export const MetricsPanel: React.FC<MetricsPanelProps> = ({
@@ -18,6 +20,7 @@ export const MetricsPanel: React.FC<MetricsPanelProps> = ({
   isLoading,
   isError,
   errorMessage,
+  onRetry,
 }) => {
   if (isLoading) {
     return (
@@ -31,20 +34,25 @@ export const MetricsPanel: React.FC<MetricsPanelProps> = ({
 
   if (isError) {
     return (
-      <aside className="metrics-panel error-box" role="alert">
+      <aside className="metrics-panel">
         <h2 className="panel-title">Accuracy Metrics</h2>
-        <p>⚠️ Unable to load metrics.</p>
-        <small>{errorMessage || 'An error occurred while calculating metrics.'}</small>
+        <ErrorBox
+          title="Unable to load metrics"
+          message={errorMessage || 'An error occurred while calculating metrics.'}
+          onRetry={onRetry}
+        />
       </aside>
     )
   }
 
   if (!metrics || metrics.count === 0) {
     return (
-      <aside className="metrics-panel metrics-placeholder">
+      <aside className="metrics-panel">
         <h2 className="panel-title">Accuracy Metrics</h2>
-        <p>No valid forecast/actual pairs in this selection.</p>
-        <small className="text-muted">Adjust the range or cutoff to view accuracy statistics.</small>
+        <EmptyState
+          title="No evaluated slots"
+          message="No valid forecast and actual pairs exist in this selection."
+        />
       </aside>
     )
   }

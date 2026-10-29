@@ -48,7 +48,7 @@ describe('SeriesChart component', () => {
   it('renders empty message when data is empty', () => {
     render(<SeriesChart data={[]} />)
     expect(
-      screen.getByText(/no delivery slots found for the selected range/i)
+      screen.getByText(/no delivery slots found/i)
     ).toBeInTheDocument()
   })
 

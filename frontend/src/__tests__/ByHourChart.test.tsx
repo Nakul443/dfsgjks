@@ -32,7 +32,7 @@ describe('ByHourChart component', () => {
   it('renders empty message when data is empty', () => {
     render(<ByHourChart data={[]} />)
     expect(
-      screen.getByText(/no hourly data available for this range/i)
+      screen.getByText(/no hourly data available/i)
     ).toBeInTheDocument()
   })
 

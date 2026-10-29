@@ -77,7 +77,7 @@ describe('MetricsPanel component', () => {
       />
     )
     expect(
-      screen.getByText(/no valid forecast\/actual pairs in this selection/i)
+      screen.getByText(/no evaluated slots/i)
     ).toBeInTheDocument()
   })
 })

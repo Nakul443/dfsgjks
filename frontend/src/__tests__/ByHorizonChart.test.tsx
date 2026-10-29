@@ -35,7 +35,7 @@ describe('ByHorizonChart component', () => {
   it('renders empty message when data is empty', () => {
     render(<ByHorizonChart data={[]} />)
     expect(
-      screen.getByText(/no horizon data available for this range/i)
+      screen.getByText(/no horizon data available/i)
     ).toBeInTheDocument()
   })
 

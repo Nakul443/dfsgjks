@@ -14,12 +14,14 @@ import {
 } from 'recharts'
 import type { HorizonMetricItem } from '../api/types'
 import { formatMW } from '../lib/format'
+import { EmptyState, ErrorBox } from './States'
 
 interface ByHorizonChartProps {
   data?: HorizonMetricItem[]
   isLoading?: boolean
   isError?: boolean
   errorMessage?: string
+  onRetry?: () => void
 }
 
 const CustomByHorizonTooltip = ({
@@ -62,6 +64,7 @@ export const ByHorizonChart: React.FC<ByHorizonChartProps> = ({
   isLoading,
   isError,
   errorMessage,
+  onRetry,
 }) => {
   if (isLoading) {
     return (
@@ -75,10 +78,12 @@ export const ByHorizonChart: React.FC<ByHorizonChartProps> = ({
 
   if (isError) {
     return (
-      <div className="chart-card chart-placeholder error-box" role="alert">
-        <h3 className="chart-title">Error by Forecast Horizon</h3>
-        <p>⚠️ Unable to load horizon patterns.</p>
-        <small>{errorMessage || 'An error occurred.'}</small>
+      <div className="chart-card chart-placeholder">
+        <ErrorBox
+          title="Unable to load horizon patterns"
+          message={errorMessage || 'An error occurred.'}
+          onRetry={onRetry}
+        />
       </div>
     )
   }
@@ -86,8 +91,10 @@ export const ByHorizonChart: React.FC<ByHorizonChartProps> = ({
   if (!data || !Array.isArray(data) || data.length === 0) {
     return (
       <div className="chart-card chart-placeholder">
-        <h3 className="chart-title">Error by Forecast Horizon</h3>
-        <p>No horizon data available for this range.</p>
+        <EmptyState
+          title="No horizon data available"
+          message="No published forecasts found for this range."
+        />
       </div>
     )
   }

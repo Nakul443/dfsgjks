@@ -16,12 +16,14 @@ import {
 } from 'recharts'
 import type { HourMetricItem } from '../api/types'
 import { formatMW } from '../lib/format'
+import { EmptyState, ErrorBox } from './States'
 
 interface ByHourChartProps {
   data?: HourMetricItem[]
   isLoading?: boolean
   isError?: boolean
   errorMessage?: string
+  onRetry?: () => void
 }
 
 const CustomByHourTooltip = ({
@@ -65,6 +67,7 @@ export const ByHourChart: React.FC<ByHourChartProps> = ({
   isLoading,
   isError,
   errorMessage,
+  onRetry,
 }) => {
   if (isLoading) {
     return (
@@ -78,10 +81,12 @@ export const ByHourChart: React.FC<ByHourChartProps> = ({
 
   if (isError) {
     return (
-      <div className="chart-card chart-placeholder error-box" role="alert">
-        <h3 className="chart-title">Error by Hour of Day</h3>
-        <p>⚠️ Unable to load hourly patterns.</p>
-        <small>{errorMessage || 'An error occurred.'}</small>
+      <div className="chart-card chart-placeholder">
+        <ErrorBox
+          title="Unable to load hourly patterns"
+          message={errorMessage || 'An error occurred.'}
+          onRetry={onRetry}
+        />
       </div>
     )
   }
@@ -89,8 +94,10 @@ export const ByHourChart: React.FC<ByHourChartProps> = ({
   if (!data || !Array.isArray(data) || data.length === 0) {
     return (
       <div className="chart-card chart-placeholder">
-        <h3 className="chart-title">Error by Hour of Day</h3>
-        <p>No hourly data available for this range.</p>
+        <EmptyState
+          title="No hourly data available"
+          message="No data points exist for the active date range."
+        />
       </div>
     )
   }
