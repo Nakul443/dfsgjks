@@ -17,6 +17,10 @@ For each 30-min delivery slot with startTime = t on delivery day D:
 # forward-fills hourly forecasts to their subsequent :30 slots, computes the forecast horizon,
 # and merges the forecasts with actual generation data to calculate forecast errors.
 
+# in simple words, this service takes the raw forecast and actual generation data,
+# applies the business rules for decision-time forecasting,
+# and produces a clean time series that can be used for analysis or visualization.
+
 from datetime import datetime, time
 
 import numpy as np

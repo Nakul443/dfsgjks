@@ -28,7 +28,7 @@ ACTUALS_END = datetime(2026, 2, 1, 0, 0, tzinfo=UTC)
 FORECAST_PUBLISH_START = datetime(2025, 12, 28, 0, 0, tzinfo=UTC)
 FORECAST_PUBLISH_END = datetime(2026, 2, 1, 0, 0, tzinfo=UTC)
 
-CHUNK_DAYS = 7
+CHUNK_DAYS = 7 # this means we will fetch data in 7-day chunks to avoid overwhelming the API and to handle rate limits effectively.
 
 
 def fetch_with_retry(

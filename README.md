@@ -1,3 +1,7 @@
+# Live Link: https://dfsgjks-p23s.vercel.app/
+# Demo Video: https://www.loom.com/share/d6da6804e9644878a71a2d2edb3cf756
+# Codebase Walkthrough: https://www.loom.com/share/ec6a7b8eccdc4de9a4271b89ec4edacd
+
 # WindBand: UK Wind Forecast Accuracy Portal
 
 A specialized Python FastAPI backend and React dashboard providing UK day-ahead wind forecast accuracy analysis and decision-time forecasting for energy trading desks.

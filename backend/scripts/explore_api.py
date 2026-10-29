@@ -57,7 +57,8 @@ def explore_fuelhh(client: httpx.Client) -> None:
         f"Settlement periods present: {df['settlementPeriod'].min()} to {df['settlementPeriod'].max()} (count={df['settlementPeriod'].nunique()})"
     )
 
-
+# function to explore WINDFOR (forecasts) data
+# which means we will look at the forecast data for wind generation, including publish times and start times, and analyze the horizon between them
 def explore_windfor(client: httpx.Client) -> None:
     print("\n" + "=" * 60)
     print("2. Exploring WINDFOR (Forecasts)")
